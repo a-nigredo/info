@@ -41,38 +41,43 @@ struct Repo {
 }
 
 fn main() {
-    rt::run(mdo! {
-        let matches = App::new("Github user repo viewer")
-                    .version("1.0")
-                    .author("Andrii Ivanov <a.nigredo@gmail.com>")
-                    .arg(Arg::with_name("user-agent").short("u").required(true).takes_value(true))
-                    .get_matches();
+    let matches = App::new("Github user repo viewer")
+        .version("1.0")
+        .author("Andrii Ivanov <a.nigredo@gmail.com>")
+        .arg(Arg::with_name("user-agent").short("u").required(true).takes_value(true))
+        .get_matches();
 
-        let user_name = matches.value_of("user-agent").unwrap();
-        let users_uri = format!("https://api.github.com/users/{}", user_name).parse().unwrap();
-        let client = Client::builder().build(
-            HttpsConnector::new(4).expect("TLS initialization failed")
-        );
-        user_response =<< client.request(mk_get_request(users_uri, user_name));
-        user =<< user_response.into_body().concat2().map(|x| to::<User>(x.to_vec()).unwrap());
-        repos_response =<< client.request(mk_get_request(user.repos_url.parse().unwrap(), user_name));
-        repos =<< repos_response.into_body().concat2().map(|x| to::<Vec<Repo>>(x.to_vec()).unwrap());
-        ret ret({
-            let user = User {repos: repos, ..user};
-            let mut table = Table::new();
-            println!("Login: {}, Name: {}, Location: {}", user.login, user.name, user.location);
-            println!("\r\nRepos: {}", user.repos.len());
-            table.add_row(row!["Name", "Full name", "Description", "Created at"]);
-            for v in &user.repos {
-                let empty_str = &"".to_string();
-                let row = row![v.name, v.full_name, v.description.as_ref().unwrap_or(empty_str), v.created_at];
-                table.add_row(row);
-            }
-            table.printstd();
-        })
-    }.map_err(|err| {
-        println!("Error: {}", err);
-    }))
+    let user_name = matches.value_of("user-agent").unwrap();
+    let users_uri = format!("https://api.github.com/users/{}", user_name).parse().unwrap();
+    let client = Client::builder().build(
+        HttpsConnector::new(4).expect("TLS initialization failed")
+    );
+
+    let comp = client.request(mk_get_request(users_uri, user_name))
+        .and_then(move |user_response|{
+           user_response.into_body().concat2().map(move |x| {
+             let user = to::<User>(x.to_vec()).unwrap();
+             client.request(mk_get_request(user.repos_url.parse().unwrap(), user_name))
+                 .map(move |repos_response| {
+                    repos_response.into_body().concat2().map(move |x| {
+                        let repos = to::<Vec<Repo>>(x.to_vec()).unwrap();
+                        let user = User {repos: repos, ..user};
+                        let mut table = Table::new();
+                        println!("Login: {}, Name: {}, Location: {}", user.login, user.name, user.location);
+                        println!("\r\nRepos: {}", user.repos.len());
+                        table.add_row(row!["Name", "Full name", "Description", "Created at"]);
+                        for v in &user.repos {
+                            let empty_str = &"".to_string();
+                            let row = row![v.name, v.full_name, v.description.as_ref().unwrap_or(empty_str), v.created_at];
+                            table.add_row(row);
+                        }
+                        table.printstd();
+                    })
+               })
+           })
+    });
+
+    rt::run(comp.map(|x| println!("Done")).map_err(|e| println!("{}", e)))
 }
 
 fn mk_get_request(uri: hyper::Uri, user_agent: &str) -> Request<hyper::Body> {
