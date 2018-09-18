@@ -48,14 +48,14 @@ fn main() {
                     .arg(Arg::with_name("user-agent").short("u").required(true).takes_value(true))
                     .get_matches();
 
-        let user_name = matches.value_of("user-agent").unwrap();
+        let user_name = matches.value_of("user-agent").unwrap().to_owned();
         let users_uri = format!("https://api.github.com/users/{}", user_name).parse().unwrap();
         let client = Client::builder().build(
             HttpsConnector::new(4).expect("TLS initialization failed")
         );
-        user_response =<< client.request(mk_get_request(users_uri, user_name));
+        user_response =<< client.request(mk_get_request(users_uri, &user_name));
         user =<< user_response.into_body().concat2().map(|x| to::<User>(x.to_vec()).unwrap());
-        repos_response =<< client.request(mk_get_request(user.repos_url.parse().unwrap(), user_name));
+        repos_response =<< client.request(mk_get_request(user.repos_url.parse().unwrap(), &user_name));
         repos =<< repos_response.into_body().concat2().map(|x| to::<Vec<Repo>>(x.to_vec()).unwrap());
         ret ret({
             let user = User {repos: repos, ..user};
